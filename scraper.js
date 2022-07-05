@@ -3,12 +3,10 @@ const fetch = require('node-fetch');
 const { Course } = require('./course');
 require('dotenv').config();
 
-// set a timer to run this every 24 hours
-
 // connects to mongoDB
 mongoose.connect(process.env.MONGO_URL).then(() => {
-  scrape();
-  // call scraper
+  // set a timer to run this every 24 hours
+  setInterval(scrape, 24 * 60 * 60 * 1000);
 });
 
 const convertDay = {
@@ -19,26 +17,26 @@ const convertDay = {
   FR: 'Friday',
 };
 
-// const deleteAll = () => {
-//   Course.deleteMany({}, (err) => {
-//     if (err) {
-//       console.log(err);
-//     } else {
-//       console.log('Success');
-//       Promise.resolve('success');
-//     }
-//   });
-// };
+const deleteAll = (data) => {
+  return new Promise((res, rej) => {
+    Course.deleteMany({}, (err) => {
+      if (err) {
+        console.log(err);
+      } else {
+        console.log('Successfully deleted all courses');
+        res(data);
+      }
+    });
+  });
+};
 
 const makeSection = (section) => {
-  //   if (section.meetingStartTime !== null) {
   return {
     day: convertDay[section.meetingDay],
     startTime: section.meetingStartTime,
     endTime: section.meetingEndTime,
     assignedRoom1: section.assignedRoom1,
   };
-  //   }
 };
 
 const makeNewCourse = (data, key) => {
@@ -73,22 +71,30 @@ const makeNewCourse = (data, key) => {
 };
 
 const cleanData = (data) => {
-  for (const key in data) {
-    let course = makeNewCourse(data, key);
-    course.sections = course.sections?.filter(
-      (section) => (section !== undefined && !section?.meetingTimes.some((meetingTime) => meetingTime.startTime === null))
-    );
-    course.tutorials = course.tutorials?.filter(
-      (tutorial) => (tutorial !== undefined && !tutorial?.meetingTimes.some((meetingTime) => meetingTime.startTime === null))
-    );
-    console.log(course.sections);
-    //   await course.save();
-  }
-  //   deleteAll().then(async () => {
-  //   });
+  // first delete all courses in mongodb
+  deleteAll(data).then((data) => {
+    // iterate through all courses, create new course objects and save to mongodb
+    for (const key in data) {
+      let course = makeNewCourse(data, key);
+      // filter out undefined lists
+      course.sections = course.sections?.filter(
+        (section) =>
+          section !== undefined &&
+          !section?.meetingTimes.some((meetingTime) => meetingTime.startTime === null)
+      );
+      course.tutorials = course.tutorials?.filter(
+        (tutorial) =>
+          tutorial !== undefined &&
+          !tutorial?.meetingTimes.some((meetingTime) => meetingTime.startTime === null)
+      );
+      course.save();
+    }
+  });
 };
 
 const scrape = () => {
+  console.log('started scraping process')
+  // fetch for all courses in all campuses
   fetch(
     'https://timetable.iit.artsci.utoronto.ca/api/20229/courses?' +
       new URLSearchParams({
@@ -98,5 +104,3 @@ const scrape = () => {
     .then((res) => res.json())
     .then((data) => cleanData(data));
 };
-
-// setInterval(scrape, 1000)
