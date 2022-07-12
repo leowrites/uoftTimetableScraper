@@ -6,7 +6,8 @@ require('dotenv').config();
 // connects to mongoDB
 mongoose.connect(process.env.MONGO_URL).then(() => {
   // set a timer to run this every 24 hours
-  setInterval(scrape, 24 * 60 * 60 * 1000);
+  console.log('Connected to mongoDB');
+  scrape()
 });
 
 const convertDay = {
@@ -17,18 +18,18 @@ const convertDay = {
   FR: 'Friday',
 };
 
-const deleteAll = (data) => {
-  return new Promise((res, rej) => {
-    Course.deleteMany({}, (err) => {
-      if (err) {
-        console.log(err);
-      } else {
-        console.log('Successfully deleted all courses');
-        res(data);
-      }
-    });
-  });
-};
+// const deleteAll = (data) => {
+//   return new Promise((res, rej) => {
+//     Course.deleteMany({}, (err) => {
+//       if (err) {
+//         console.log(err);
+//       } else {
+//         console.log('Successfully deleted all courses');
+//         res(data);
+//       }
+//     });
+//   });
+// };
 
 const makeSection = (section) => {
   return {
@@ -40,7 +41,7 @@ const makeSection = (section) => {
 };
 
 const makeNewCourse = (data, key) => {
-  return new Course({
+  const course = {
     courseCode: data[key].code,
     courseTitle: data[key].courseTitle,
     university: 'uoft',
@@ -67,33 +68,36 @@ const makeNewCourse = (data, key) => {
           }),
         };
     }),
-  });
+  };
+  course.sections = course.sections?.filter(
+    (section) =>
+      section !== undefined &&
+      !section?.meetingTimes.some((meetingTime) => meetingTime.startTime === null)
+  );
+  course.tutorials = course.tutorials?.filter(
+    (tutorial) =>
+      tutorial !== undefined &&
+      !tutorial?.meetingTimes.some((meetingTime) => meetingTime.startTime === null)
+  );
+  return course;
 };
 
-const cleanData = (data) => {
-  // first delete all courses in mongodb
-  deleteAll(data).then((data) => {
-    // iterate through all courses, create new course objects and save to mongodb
-    for (const key in data) {
-      let course = makeNewCourse(data, key);
-      // filter out undefined lists
-      course.sections = course.sections?.filter(
-        (section) =>
-          section !== undefined &&
-          !section?.meetingTimes.some((meetingTime) => meetingTime.startTime === null)
-      );
-      course.tutorials = course.tutorials?.filter(
-        (tutorial) =>
-          tutorial !== undefined &&
-          !tutorial?.meetingTimes.some((meetingTime) => meetingTime.startTime === null)
-      );
-      course.save();
-    }
-  });
+const updateData = async (data) => {
+  // iterate through all courses, create new course objects and save to mongodb
+  for (const key in data) {
+    await Course.replaceOne(
+      {
+        courseCode: data[key].code,
+        term: data[key].section,
+      },
+      makeNewCourse(data, key),
+      { upsert: true }
+    );
+  }
 };
 
 const scrape = () => {
-  console.log('started scraping process')
+  console.log('Started scraping process');
   // fetch for all courses in all campuses
   fetch(
     'https://timetable.iit.artsci.utoronto.ca/api/20229/courses?' +
@@ -102,5 +106,5 @@ const scrape = () => {
       })
   )
     .then((res) => res.json())
-    .then((data) => cleanData(data));
+    .then((data) => updateData(data));
 };
